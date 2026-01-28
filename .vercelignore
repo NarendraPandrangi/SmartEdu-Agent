@@ -1,0 +1,16 @@
+venv
+__pycache__
+.git
+.env
+debug_response.txt
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.coverage
+htmlcov
+dist
+build
+.DS_Store
+node_modules
+frontend

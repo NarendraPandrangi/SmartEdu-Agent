@@ -4,11 +4,12 @@ import re
 from dotenv import load_dotenv
 from typing import Optional, List
 from models import ContentOutput, ReviewFeedback, ContentRequest
-from krutrim_cloud import KrutrimCloud
+import requests
 
 load_dotenv()
 
 model_name = "Krutrim-spectre-v2"
+API_BASE_URL = "https://cloud.olakrutrim.com/v1/chat/completions"
 
 def extract_or_construct_json(text: str) -> str:
     # Try basic JSON extraction first
@@ -58,8 +59,6 @@ def extract_or_construct_json(text: str) -> str:
             
             # Natural language header fallback
             if "multiple choice questions" in lower_line or "mcqs" in lower_line or "assessment" in lower_line:
-                # Be careful not to trigger on "In this lesson about multiple choice questions..."
-                # Headers are usually short.
                 if len(line) < 50:
                     capture_explanation = False
                     if not q_match:
@@ -67,10 +66,8 @@ def extract_or_construct_json(text: str) -> str:
             
             # Heuristic: Start of a question often looks like "1. What...?"
             if q_match:
-                # If the line ends with a question mark, it's very likely a question
                 if line.endswith('?'):
                      capture_explanation = False
-                # Or if it explicitly starts with "Question"
                 elif line.lower().startswith("question"):
                      capture_explanation = False
 
@@ -122,11 +119,8 @@ def extract_or_construct_json(text: str) -> str:
 
     # Validate MCQs
     if len(mcqs) == 0:
-        # Fallback: If no MCQs found, maybe the model didn't label them perfectly.
-        # But for now, we return empty so the user knows it failed, or we could try to re-parse explanation?
-        # Let's trust the "Failed to parse" so we can debug.
         pass
-        
+
     return json.dumps({
         "explanation": " ".join(explanation_lines).replace("Explanation:", "").strip(),
         "mcqs": mcqs
@@ -151,10 +145,9 @@ def extract_review_json(text: str) -> str:
 
 class GeneratorAgent:
     def __init__(self):
-        api_key = os.getenv("KUTRIM_API_KEY")
-        if not api_key:
+        self.api_key = os.getenv("KUTRIM_API_KEY")
+        if not self.api_key:
             raise ValueError("KUTRIM_API_KEY not found in .env")
-        self.client = KrutrimCloud(api_key=api_key)
 
     def generate(self, request: ContentRequest, feedback: Optional[List[str]] = None) -> ContentOutput:
         prompt = f"""
@@ -186,17 +179,24 @@ class GeneratorAgent:
             prompt += f"\n\nRefinement Request based on previous feedback:\n{json.dumps(feedback)}"
         
         try:
-            response = self.client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=1024,
-                temperature=0.5
-            )
+            payload = {
+                "model": model_name,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 1024,
+                "temperature": 0.5
+            }
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
             
-            content_text = response.choices[0].message.content.strip()
+            response = requests.post(API_BASE_URL, json=payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            
+            content_text = data['choices'][0]['message']['content'].strip()
             print(f"Generator Raw Output: {content_text}")
             
-            # Log to file for debug
             try:
                 with open("debug_response.txt", "w", encoding="utf-8") as f:
                     f.write(content_text)
@@ -211,10 +211,9 @@ class GeneratorAgent:
 
 class ReviewerAgent:
     def __init__(self):
-        api_key = os.getenv("KUTRIM_API_KEY")
-        if not api_key:
+        self.api_key = os.getenv("KUTRIM_API_KEY")
+        if not self.api_key:
              raise ValueError("KUTRIM_API_KEY not found in .env")
-        self.client = KrutrimCloud(api_key=api_key)
 
     def review(self, content: ContentOutput, request: ContentRequest) -> ReviewFeedback:
         prompt = f"""
@@ -246,18 +245,26 @@ class ReviewerAgent:
         """
         
         try:
-             response = self.client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=512,
-                temperature=0.3
-            )
+            payload = {
+                "model": model_name,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 512,
+                "temperature": 0.3
+            }
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            response = requests.post(API_BASE_URL, json=payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
              
-             content_text = response.choices[0].message.content.strip()
-             print(f"Reviewer Raw Output: {content_text}")
+            content_text = data['choices'][0]['message']['content'].strip()
+            print(f"Reviewer Raw Output: {content_text}")
              
-             json_text = extract_review_json(content_text)
-             return ReviewFeedback.model_validate_json(json_text)
+            json_text = extract_review_json(content_text)
+            return ReviewFeedback.model_validate_json(json_text)
         except Exception as e:
-             print(f"Error in ReviewerAgent: {e}")
-             raise ValueError(f"Reviewer failed: {str(e)}")
+            print(f"Error in ReviewerAgent: {e}")
+            raise ValueError(f"Reviewer failed: {str(e)}")

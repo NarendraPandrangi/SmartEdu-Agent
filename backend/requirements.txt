@@ -1,5 +1,5 @@
 fastapi
 uvicorn
-krutrim-cloud
+requests
 python-dotenv
 pydantic
