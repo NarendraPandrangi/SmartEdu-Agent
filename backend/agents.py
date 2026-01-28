@@ -147,7 +147,9 @@ class GeneratorAgent:
     def __init__(self):
         self.api_key = os.getenv("KUTRIM_API_KEY")
         if not self.api_key:
-            raise ValueError("KUTRIM_API_KEY not found in .env")
+            # Better error message for debugging
+            available_keys = [k for k in os.environ.keys() if 'KEY' in k or 'API' in k]
+            raise ValueError(f"KUTRIM_API_KEY not found. Available API-related env vars: {available_keys}")
 
     def generate(self, request: ContentRequest, feedback: Optional[List[str]] = None) -> ContentOutput:
         prompt = f"""
@@ -213,7 +215,8 @@ class ReviewerAgent:
     def __init__(self):
         self.api_key = os.getenv("KUTRIM_API_KEY")
         if not self.api_key:
-             raise ValueError("KUTRIM_API_KEY not found in .env")
+             available_keys = [k for k in os.environ.keys() if 'KEY' in k or 'API' in k]
+             raise ValueError(f"KUTRIM_API_KEY not found. Available API-related env vars: {available_keys}")
 
     def review(self, content: ContentOutput, request: ContentRequest) -> ReviewFeedback:
         prompt = f"""

@@ -27,7 +27,10 @@ async def generate_content_pipeline(request: ContentRequest):
     try:
         draft = generator.generate(request)
     except Exception as e:
-         raise HTTPException(status_code=500, detail=f"Generator failed: {str(e)}")
+        import traceback
+        error_detail = f"Generator failed: {str(e)}\nTraceback: {traceback.format_exc()}"
+        print(error_detail)  # This will show in Vercel logs
+        raise HTTPException(status_code=500, detail=f"Generator failed: {str(e)}")
 
     # 2. Review
     try:
